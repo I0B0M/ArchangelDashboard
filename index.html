@@ -417,9 +417,11 @@ function loadAll(){
     setStatus('taskStatus','taskDot','taskTxt',tasks.length+' tasks loaded from both trackers.','live',false);
     buildWeekFilter(tasks);
     setTimeout(loadAll,5*60*1000);
-  }).catch(()=>{
-    setStatus('statusBar','sDot','sTxt','Could not reach Google Sheets.','err',false);
-    setStatus('taskStatus','taskDot','taskTxt','Could not load task data.','err',false);
+  }).catch(err=>{
+    console.error('loadAll failed:',err);
+    setStatus('statusBar','sDot','sTxt','Could not reach Google Sheets — '+(err&&err.message?err.message:'unknown error')+'.','err',false);
+    setStatus('taskStatus','taskDot','taskTxt','Could not load task data — '+(err&&err.message?err.message:'unknown error')+'.','err',false);
+    setTimeout(loadAll,30*1000);
   });
 }
 
@@ -427,8 +429,20 @@ function fetchCSV(url){
   return new Promise((resolve,reject)=>{
     Papa.parse(url,{
       download:true,skipEmptyLines:true,
-      complete:r=>resolve(r.data),
-      error:reject
+      complete:r=>{
+        if(r.errors&&r.errors.length>0){
+          console.warn('CSV parse warnings for',url.substring(0,80)+'…:',r.errors);
+        }
+        if(!r.data||r.data.length===0){
+          reject(new Error('CSV returned no data from '+url.substring(0,80)));
+          return;
+        }
+        resolve(r.data);
+      },
+      error:e=>{
+        console.error('CSV fetch/parse error for',url.substring(0,80)+'…:',e);
+        reject(e instanceof Error?e:new Error(String(e)));
+      }
     });
   });
 }
@@ -439,13 +453,13 @@ function parseDash(rows){
     const j=rows[i].join('|').toLowerCase();
     if(j.includes('week')&&j.includes('ibrahim hrs')){hIdx=i;break;}
   }
-  if(hIdx<0) return emptyData();
+  if(hIdx<0){ console.warn('parseDash: could not find header row with "week" and "ibrahim hrs" columns'); return emptyData(); }
   const hdr=rows[hIdx].map(c=>c.toString().toLowerCase().trim());
   const iHC=hdr.findIndex(c=>c==='ibrahim hrs');
   const iTC=hdr.findIndex(c=>c==='ibrahim tasks');
   const bHC=hdr.findIndex(c=>c==='bryan hrs');
   const bTC=hdr.findIndex(c=>c==='bryan tasks');
-  if(iHC<0||bHC<0) return emptyData();
+  if(iHC<0||bHC<0){ console.warn('parseDash: missing required columns — ibrahim hrs:',iHC,'bryan hrs:',bHC); return emptyData(); }
   const iH=[],bH=[],iT=[],bT=[];
   for(let i=hIdx+1;i<rows.length;i++){
     const r=rows[i];
@@ -469,7 +483,7 @@ function parseTasks(rows,internName){
     const j=rows[i].join('|').toLowerCase();
     if(j.includes('day')&&j.includes('task')){hIdx=i;break;}
   }
-  if(hIdx<0) return tasks;
+  if(hIdx<0){ console.warn('parseTasks('+internName+'): could not find header row with "day" and "task" columns'); return tasks; }
   const hdr=rows[hIdx].map(c=>c.toString().toLowerCase().trim());
   const dayC=hdr.findIndex(c=>c==='day'||c==='b');
   const dateC=hdr.findIndex(c=>c==='date'||c==='c');
@@ -504,8 +518,12 @@ function buildWeekFilter(tasks){
         const diff=Math.floor((d-new Date('2026-06-09'))/(7*24*3600*1000));
         const w=Math.min(11,Math.max(0,diff));
         weeks.add('Week '+(w+1).toString().padStart(2,'0'));
+      } else {
+        console.warn('buildWeekFilter: invalid date "'+t.date+'" for task by '+t.intern);
       }
-    }catch(e){}
+    }catch(e){
+      console.warn('buildWeekFilter: error parsing date "'+t.date+'":',e.message);
+    }
   });
   const sel=document.getElementById('filterWeek');
   Array.from(weeks).sort().forEach(w=>{
@@ -613,7 +631,7 @@ function rebuildCharts(d){
 
 function parseLogs(rows, internName){
   const logs=[];
-  if(rows.length<2) return logs;
+  if(rows.length<2){ console.warn('parseLogs('+internName+'): insufficient rows (',rows.length,')'); return logs; }
   const hdr=rows[0].map(c=>c.toString().toLowerCase().trim());
   const signC=hdr.findIndex(c=>c.includes('sign'));
   const dayC=hdr.findIndex(c=>c==='day');
@@ -677,7 +695,14 @@ function loadLogs(){
     allLogs=logs;
     renderLogs(logs);
     updateTodayStatus(logs);
-  }).catch(()=>{});
+  }).catch(err=>{
+    console.error('loadLogs failed:',err);
+    const tbody=document.getElementById('logTbl');
+    const empty=document.getElementById('logEmpty');
+    tbody.innerHTML='';
+    empty.textContent='Could not load log entries — '+(err&&err.message?err.message:'check your connection')+'.';
+    empty.style.display='block';
+  });
 }
 
 function submitLog(){
@@ -691,16 +716,20 @@ function submitLog(){
     +`?signedIn=${encodeURIComponent(signedIn)}&day=${encodeURIComponent(day)}&task=${encodeURIComponent(task)}&notes=${encodeURIComponent(notes)}`;
   const btn=document.getElementById('logSubmit');
   btn.disabled=true; btn.textContent='Submitting...';
-  fetch(url,{mode:'no-cors'}).then(()=>{
-    showMsg('Entry submitted!','ok');
+  fetch(url,{mode:'no-cors'}).then(resp=>{
+    if(resp.type!=='opaque'&&!resp.ok){
+      throw new Error('Server responded with status '+resp.status);
+    }
+    showMsg('Entry submitted! (Verification may take a moment)','ok');
     btn.disabled=false; btn.textContent='Submit Entry';
     document.getElementById('logDay').value='';
     document.getElementById('logSignedIn').value='';
     document.getElementById('logTask').value='';
     document.getElementById('logNotes').value='';
     setTimeout(loadLogs,2000);
-  }).catch(()=>{
-    showMsg('Submission failed. Check your connection.','err');
+  }).catch(err=>{
+    console.error('submitLog failed:',err);
+    showMsg('Submission failed: '+(err&&err.message?err.message:'check your connection')+'.','err');
     btn.disabled=false; btn.textContent='Submit Entry';
   });
 }
@@ -719,17 +748,22 @@ function emptyData(){
 }
 
 function exportCSV(){
-  const d=liveData||emptyData();
-  const rows=[['Week','Ibrahim Hours','Bryan Hours','Ibrahim Tasks','Bryan Tasks','Combined Hours']];
-  for(let i=0;i<12;i++) rows.push(['Week '+(i+1),d.iH[i],d.bH[i],d.iT[i],d.bT[i],d.iH[i]+d.bH[i]]);
-  if(allTasks.length>0){
-    rows.push([]);
-    rows.push(['Intern','Date','Day','Hours','Task','Notes']);
-    allTasks.forEach(t=>rows.push([t.intern,t.date,t.day,t.hrs,t.task,t.notes]));
+  try{
+    const d=liveData||emptyData();
+    const rows=[['Week','Ibrahim Hours','Bryan Hours','Ibrahim Tasks','Bryan Tasks','Combined Hours']];
+    for(let i=0;i<12;i++) rows.push(['Week '+(i+1),d.iH[i],d.bH[i],d.iT[i],d.bT[i],d.iH[i]+d.bH[i]]);
+    if(allTasks.length>0){
+      rows.push([]);
+      rows.push(['Intern','Date','Day','Hours','Task','Notes']);
+      allTasks.forEach(t=>rows.push([t.intern,t.date,t.day,t.hrs,t.task,t.notes]));
+    }
+    const a=document.createElement('a');
+    a.href='data:text/csv,'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));
+    a.download='Archangel_Summer2026_Export.csv'; a.click();
+  }catch(err){
+    console.error('exportCSV failed:',err);
+    alert('Export failed: '+(err.message||'unknown error'));
   }
-  const a=document.createElement('a');
-  a.href='data:text/csv,'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));
-  a.download='Archangel_Summer2026_Export.csv'; a.click();
 }
 
 loadAll();
