@@ -10,3 +10,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = { doGet };
+}
