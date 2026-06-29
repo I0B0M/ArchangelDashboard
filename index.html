@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Archangel — Summer 2026 Manager Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src https://docs.google.com https://script.google.com; img-src 'self' data:; font-src 'self'">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs" crossorigin="anonymous"></script>
 <style>
 :root{
   --tech:#1502FF;
@@ -360,6 +361,18 @@ textarea.form-input{resize:vertical;min-height:70px}
 </div>
 
 <script>
+/* ─── Security: HTML sanitization helper ─── */
+function escapeHtml(str){
+  if(!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+function sanitizeUrl(url){
+  if(!url) return '';
+  const trimmed=url.trim();
+  if(/^https?:\/\//i.test(trimmed)) return escapeHtml(trimmed);
+  return '';
+}
+
 const DASH_URL="https://docs.google.com/spreadsheets/d/e/2PACX-1vSTLcygMFnTUumR9ZErby91CFW-PbFlKWQNPeY2ukxKhax0s5Aw8Om1fTXz59vkCHBA6WaL3de454sO/pub?gid=458970490&single=true&output=csv";
 const IBRAHIM_URL="https://docs.google.com/spreadsheets/d/e/2PACX-1vSTLcygMFnTUumR9ZErby91CFW-PbFlKWQNPeY2ukxKhax0s5Aw8Om1fTXz59vkCHBA6WaL3de454sO/pub?gid=197079392&single=true&output=csv";
 const BRYAN_URL="https://docs.google.com/spreadsheets/d/e/2PACX-1vSTLcygMFnTUumR9ZErby91CFW-PbFlKWQNPeY2ukxKhax0s5Aw8Om1fTXz59vkCHBA6WaL3de454sO/pub?gid=347152090&single=true&output=csv";
@@ -536,16 +549,22 @@ function renderTasks(tasks){
   }
   empty.style.display='none';
   document.getElementById('taskCount').textContent=tasks.length+' task'+(tasks.length!==1?'s':'');
-  tbody.innerHTML=tasks.map(t=>`
+  tbody.innerHTML=tasks.map(t=>{
+    const safeIntern=escapeHtml(t.intern);
+    const safeDate=escapeHtml(t.date);
+    const safeDay=escapeHtml(t.day);
+    const safeTask=escapeHtml(t.task);
+    const safeUrl=sanitizeUrl(t.notes);
+    return `
     <tr>
-      <td><span class="${t.intern==='Ibrahim'?'intern-badge-i':'intern-badge-b'}">${t.intern}</span></td>
-      <td style="white-space:nowrap">${t.date}</td>
-      <td>${t.day}</td>
+      <td><span class="${t.intern==='Ibrahim'?'intern-badge-i':'intern-badge-b'}">${safeIntern}</span></td>
+      <td style="white-space:nowrap">${safeDate}</td>
+      <td>${safeDay}</td>
       <td style="font-weight:600;color:var(--text)">${t.hrs}</td>
-      <td style="color:var(--text)">${t.task}</td>
-      <td style="font-size:11px">${t.notes?'<a href="'+t.notes+'" style="color:var(--tech);text-decoration:none" target="_blank">'+t.notes.substring(0,40)+(t.notes.length>40?'...':'')+'</a>':''}</td>
-    </tr>
-  `).join('');
+      <td style="color:var(--text)">${safeTask}</td>
+      <td style="font-size:11px">${safeUrl?'<a href="'+safeUrl+'" style="color:var(--tech);text-decoration:none" target="_blank" rel="noopener noreferrer">'+escapeHtml(t.notes.substring(0,40))+(t.notes.length>40?'...':'')+'</a>':''}</td>
+    </tr>`;
+  }).join('');
 }
 
 function renderAll(d){
@@ -640,15 +659,20 @@ function renderLogs(logs){
   const empty=document.getElementById('logEmpty');
   if(logs.length===0){tbody.innerHTML='';empty.style.display='block';return;}
   empty.style.display='none';
-  tbody.innerHTML=logs.map(l=>`
+  tbody.innerHTML=logs.map(l=>{
+    const safeDay=escapeHtml(l.day);
+    const safeSignedIn=escapeHtml(l.signedIn)||'—';
+    const safeTask=escapeHtml(l.task);
+    const safeUrl=sanitizeUrl(l.notes);
+    return `
     <tr>
-      <td><span class="${l.intern==='Bryan'?'intern-badge-b':'intern-badge-i'}">${l.intern}</span></td>
-      <td>${l.day}</td>
-      <td style="color:var(--found);font-weight:600">${l.signedIn||'—'}</td>
-      <td style="color:var(--text)">${l.task}</td>
-      <td style="font-size:11px">${l.notes?'<a href="'+l.notes+'" style="color:var(--tech);text-decoration:none" target="_blank">'+l.notes.substring(0,40)+(l.notes.length>40?'...':'')+'</a>':''}</td>
-    </tr>
-  `).join('');
+      <td><span class="${l.intern==='Bryan'?'intern-badge-b':'intern-badge-i'}">${escapeHtml(l.intern)}</span></td>
+      <td>${safeDay}</td>
+      <td style="color:var(--found);font-weight:600">${safeSignedIn}</td>
+      <td style="color:var(--text)">${safeTask}</td>
+      <td style="font-size:11px">${safeUrl?'<a href="'+safeUrl+'" style="color:var(--tech);text-decoration:none" target="_blank" rel="noopener noreferrer">'+escapeHtml(l.notes.substring(0,40))+(l.notes.length>40?'...':'')+'</a>':''}</td>
+    </tr>`;
+  }).join('');
 }
 
 function updateTodayStatus(logs){
@@ -662,10 +686,10 @@ function updateTodayStatus(logs){
     <div class="today-row">
       <div style="display:flex;align-items:center">
         <div class="today-dot" style="background:${entries.length?'var(--found)':dotColor};${entries.length?'animation:pulse 2s infinite':''}"></div>
-        <span class="today-name">${name}</span>
+        <span class="today-name">${escapeHtml(name)}</span>
       </div>
       ${entries.length
-        ?`<span class="today-time">${entries[0].signedIn||'Logged'}</span>`
+        ?`<span class="today-time">${escapeHtml(entries[0].signedIn)||'Logged'}</span>`
         :`<span class="today-missing">No entry yet</span>`}
     </div>
   `).join('');
@@ -687,6 +711,11 @@ function submitLog(){
   const task=document.getElementById('logTask').value.trim();
   const notes=document.getElementById('logNotes').value.trim();
   if(!day||!signedIn||!task){showMsg('Please fill in Day, Signed In, and Task.','err');return;}
+  // Client-side input length validation
+  if(day.length>20){showMsg('Day field is too long (max 20 chars).','err');return;}
+  if(signedIn.length>50){showMsg('Signed In field is too long (max 50 chars).','err');return;}
+  if(task.length>500){showMsg('Task field is too long (max 500 chars).','err');return;}
+  if(notes.length>500){showMsg('Notes field is too long (max 500 chars).','err');return;}
   const url=(intern==='bryan'?BRYAN_SCRIPT:IBRAHIM_SCRIPT)
     +`?signedIn=${encodeURIComponent(signedIn)}&day=${encodeURIComponent(day)}&task=${encodeURIComponent(task)}&notes=${encodeURIComponent(notes)}`;
   const btn=document.getElementById('logSubmit');
