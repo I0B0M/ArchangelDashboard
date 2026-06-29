@@ -371,6 +371,55 @@ const BRYAN_SCRIPT="https://script.google.com/macros/s/AKfycbxKqvDzbpkmyMhCkVCod
 const IBRAHIM_SCRIPT="https://script.google.com/macros/s/AKfycbzWWbPV-YLOL-e_AklO46TVI7nQGgmqIeA32_HX-l_R6hVm_vkj_UBGRWHo566BZrUa/exec";
 let barC=null,pieC=null,taskC=null,liveData=null,allTasks=[],allLogs=[],isLight=false;
 
+/* ── Shared Utilities ── */
+
+function sum(arr){ return arr.reduce((a,b)=>a+b,0); }
+
+function pct(value,target){ return Math.round(value/target*100); }
+
+function clampPct(value){ return Math.min(100,value)+'%'; }
+
+function internBadgeClass(name){
+  return name==='Ibrahim'?'intern-badge-i':'intern-badge-b';
+}
+
+function renderNoteLink(text){
+  if(!text) return '';
+  const display=text.length>40?text.substring(0,40)+'...':text;
+  return `<a href="${text}" style="color:var(--tech);text-decoration:none" target="_blank">${display}</a>`;
+}
+
+function findHeaderRow(rows,keywords){
+  for(let i=0;i<rows.length;i++){
+    const joined=rows[i].join('|').toLowerCase();
+    if(keywords.every(k=>joined.includes(k))) return i;
+  }
+  return -1;
+}
+
+function renderTableBody(tbodyId,emptyId,items,rowRenderer){
+  const tbody=document.getElementById(tbodyId);
+  const empty=document.getElementById(emptyId);
+  if(items.length===0){
+    tbody.innerHTML=''; empty.style.display='block'; return;
+  }
+  empty.style.display='none';
+  tbody.innerHTML=items.map(rowRenderer).join('');
+}
+
+function setKPI(valId,subId,barId,value,label,color){
+  document.getElementById(valId).textContent=value+' hrs';
+  const p=pct(value,TARGET);
+  document.getElementById(subId).textContent=p+'% of 480hr target';
+  document.getElementById(barId).style.width=clampPct(p);
+}
+
+function progressBarHTML(name,value,color){
+  const p=pct(value,TARGET);
+  return `<div class="pbar-lbl"><span>${name}</span><span>${p}% (${value}/${TARGET} hrs)</span></div>
+     <div class="pbar-track"><div class="pbar-fill" style="background:${color};width:${clampPct(p)}"></div></div>`;
+}
+
 function toggleMode(){
   isLight=!isLight;
   document.body.classList.toggle('light',isLight);
@@ -434,11 +483,7 @@ function fetchCSV(url){
 }
 
 function parseDash(rows){
-  let hIdx=-1;
-  for(let i=0;i<rows.length;i++){
-    const j=rows[i].join('|').toLowerCase();
-    if(j.includes('week')&&j.includes('ibrahim hrs')){hIdx=i;break;}
-  }
+  const hIdx=findHeaderRow(rows,['week','ibrahim hrs']);
   if(hIdx<0) return emptyData();
   const hdr=rows[hIdx].map(c=>c.toString().toLowerCase().trim());
   const iHC=hdr.findIndex(c=>c==='ibrahim hrs');
@@ -464,11 +509,7 @@ function parseDash(rows){
 
 function parseTasks(rows,internName){
   const tasks=[];
-  let hIdx=-1;
-  for(let i=0;i<rows.length;i++){
-    const j=rows[i].join('|').toLowerCase();
-    if(j.includes('day')&&j.includes('task')){hIdx=i;break;}
-  }
+  const hIdx=findHeaderRow(rows,['day','task']);
   if(hIdx<0) return tasks;
   const hdr=rows[hIdx].map(c=>c.toString().toLowerCase().trim());
   const dayC=hdr.findIndex(c=>c==='day'||c==='b');
@@ -527,56 +568,41 @@ function filterTasks(){
 }
 
 function renderTasks(tasks){
-  const tbody=document.getElementById('taskTbl');
-  const empty=document.getElementById('taskEmpty');
-  if(tasks.length===0){
-    tbody.innerHTML=''; empty.style.display='block';
-    document.getElementById('taskCount').textContent='0 tasks';
-    return;
-  }
-  empty.style.display='none';
-  document.getElementById('taskCount').textContent=tasks.length+' task'+(tasks.length!==1?'s':'');
-  tbody.innerHTML=tasks.map(t=>`
+  document.getElementById('taskCount').textContent=tasks.length===0?'0 tasks':tasks.length+' task'+(tasks.length!==1?'s':'');
+  renderTableBody('taskTbl','taskEmpty',tasks,t=>`
     <tr>
-      <td><span class="${t.intern==='Ibrahim'?'intern-badge-i':'intern-badge-b'}">${t.intern}</span></td>
+      <td><span class="${internBadgeClass(t.intern)}">${t.intern}</span></td>
       <td style="white-space:nowrap">${t.date}</td>
       <td>${t.day}</td>
       <td style="font-weight:600;color:var(--text)">${t.hrs}</td>
       <td style="color:var(--text)">${t.task}</td>
-      <td style="font-size:11px">${t.notes?'<a href="'+t.notes+'" style="color:var(--tech);text-decoration:none" target="_blank">'+t.notes.substring(0,40)+(t.notes.length>40?'...':'')+'</a>':''}</td>
+      <td style="font-size:11px">${renderNoteLink(t.notes)}</td>
     </tr>
-  `).join('');
+  `);
 }
 
 function renderAll(d){
-  const tI=d.iH.reduce((a,b)=>a+b,0),tB=d.bH.reduce((a,b)=>a+b,0);
-  const tkI=d.iT.reduce((a,b)=>a+b,0),tkB=d.bT.reduce((a,b)=>a+b,0);
-  const pI=Math.round(tI/TARGET*100),pB=Math.round(tB/TARGET*100);
+  const tI=sum(d.iH),tB=sum(d.bH);
+  const tkI=sum(d.iT),tkB=sum(d.bT);
 
-  document.getElementById('k1').textContent=tI+' hrs';
-  document.getElementById('k1s').textContent=pI+'% of 480hr target';
-  document.getElementById('k1b').style.width=Math.min(100,pI)+'%';
-  document.getElementById('k2').textContent=tB+' hrs';
-  document.getElementById('k2s').textContent=pB+'% of 480hr target';
-  document.getElementById('k2b').style.width=Math.min(100,pB)+'%';
+  setKPI('k1','k1s','k1b',tI,'Ibrahim',null);
+  setKPI('k2','k2s','k2b',tB,'Bryan',null);
   document.getElementById('k3').textContent=(tI+tB)+' hrs';
   document.getElementById('k3s').textContent=(tkI+tkB)+' tasks logged';
-  document.getElementById('k3b').style.width=Math.min(100,Math.round((tI+tB)/(TARGET*2)*100))+'%';
+  document.getElementById('k3b').style.width=clampPct(pct(tI+tB,TARGET*2));
 
   document.getElementById('sumTbl').innerHTML=[
-    {name:'Ibrahim Chhapra',hrs:tI,tasks:tkI,cls:'intern-badge-i'},
-    {name:'Bryan Londres',hrs:tB,tasks:tkB,cls:'intern-badge-b'}
+    {name:'Ibrahim Chhapra',hrs:tI,tasks:tkI},
+    {name:'Bryan Londres',hrs:tB,tasks:tkB}
   ].map(r=>`<tr>
-    <td style="font-weight:600;color:var(--text)"><span class="${r.cls}">${r.name.split(' ')[0]}</span> ${r.name.split(' ')[1]}</td>
+    <td style="font-weight:600;color:var(--text)"><span class="${internBadgeClass(r.name.split(' ')[0])}">${r.name.split(' ')[0]}</span> ${r.name.split(' ')[1]}</td>
     <td>${r.hrs}</td><td>${r.tasks}</td>
     <td><span class="pill-active">Active</span></td>
   </tr>`).join('');
 
   document.getElementById('progBars').innerHTML=
-    `<div class="pbar-lbl"><span>Ibrahim Chhapra</span><span>${pI}% (${tI}/${TARGET} hrs)</span></div>
-     <div class="pbar-track"><div class="pbar-fill" style="background:var(--tech);width:${Math.min(100,pI)}%"></div></div>
-     <div class="pbar-lbl"><span>Bryan Londres</span><span>${pB}% (${tB}/${TARGET} hrs)</span></div>
-     <div class="pbar-track"><div class="pbar-fill" style="background:var(--edu);width:${Math.min(100,pB)}%"></div></div>`;
+    progressBarHTML('Ibrahim Chhapra',tI,'var(--tech)')+
+    progressBarHTML('Bryan Londres',tB,'var(--edu)');
 
   rebuildCharts(d);
 }
@@ -588,12 +614,13 @@ function rebuildCharts(d){
     plugins:{legend:{display:false}},
     scales:{x:{ticks:{color:tickColor,font:{size:9}},grid:{color:gridColor},border:{color:gridColor}},
             y:{ticks:{color:tickColor,font:{size:9}},grid:{color:gridColor},border:{color:gridColor}}}};
+  function barDatasets(iData,bData){
+    return [{label:'Ibrahim',data:iData,backgroundColor:'#1502FF',borderRadius:3,barPercentage:0.75},
+            {label:'Bryan',data:bData,backgroundColor:'#7776BC',borderRadius:3,barPercentage:0.75}];
+  }
   if(barC) barC.destroy();
-  barC=new Chart(document.getElementById('barChart'),{type:'bar',data:{labels:WEEKS,datasets:[
-    {label:'Ibrahim',data:d.iH,backgroundColor:'#1502FF',borderRadius:3,barPercentage:0.75},
-    {label:'Bryan',data:d.bH,backgroundColor:'#7776BC',borderRadius:3,barPercentage:0.75}
-  ]},options:cO});
-  const tI=d.iH.reduce((a,b)=>a+b,0),tB=d.bH.reduce((a,b)=>a+b,0);
+  barC=new Chart(document.getElementById('barChart'),{type:'bar',data:{labels:WEEKS,datasets:barDatasets(d.iH,d.bH)},options:cO});
+  const tI=sum(d.iH),tB=sum(d.bH);
   const safe=tI+tB>0;
   if(pieC) pieC.destroy();
   pieC=new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{
@@ -603,12 +630,9 @@ function rebuildCharts(d){
     borderWidth:3,hoverOffset:4}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'65%',
       plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>safe?`${ctx.label}: ${ctx.parsed} hrs (${Math.round(ctx.parsed/(tI+tB)*100)}%)`:`${ctx.label}: no data yet`}}}}});
+        tooltip:{callbacks:{label:ctx=>safe?`${ctx.label}: ${ctx.parsed} hrs (${pct(ctx.parsed,tI+tB)}%)`:`${ctx.label}: no data yet`}}}}});
   if(taskC) taskC.destroy();
-  taskC=new Chart(document.getElementById('taskChart'),{type:'bar',data:{labels:WEEKS,datasets:[
-    {label:'Ibrahim',data:d.iT,backgroundColor:'#1502FF',borderRadius:3,barPercentage:0.75},
-    {label:'Bryan',data:d.bT,backgroundColor:'#7776BC',borderRadius:3,barPercentage:0.75}
-  ]},options:cO});
+  taskC=new Chart(document.getElementById('taskChart'),{type:'bar',data:{labels:WEEKS,datasets:barDatasets(d.iT,d.bT)},options:cO});
 }
 
 function parseLogs(rows, internName){
@@ -636,19 +660,15 @@ function parseLogs(rows, internName){
 }
 
 function renderLogs(logs){
-  const tbody=document.getElementById('logTbl');
-  const empty=document.getElementById('logEmpty');
-  if(logs.length===0){tbody.innerHTML='';empty.style.display='block';return;}
-  empty.style.display='none';
-  tbody.innerHTML=logs.map(l=>`
+  renderTableBody('logTbl','logEmpty',logs,l=>`
     <tr>
-      <td><span class="${l.intern==='Bryan'?'intern-badge-b':'intern-badge-i'}">${l.intern}</span></td>
+      <td><span class="${internBadgeClass(l.intern)}">${l.intern}</span></td>
       <td>${l.day}</td>
       <td style="color:var(--found);font-weight:600">${l.signedIn||'—'}</td>
       <td style="color:var(--text)">${l.task}</td>
-      <td style="font-size:11px">${l.notes?'<a href="'+l.notes+'" style="color:var(--tech);text-decoration:none" target="_blank">'+l.notes.substring(0,40)+(l.notes.length>40?'...':'')+'</a>':''}</td>
+      <td style="font-size:11px">${renderNoteLink(l.notes)}</td>
     </tr>
-  `).join('');
+  `);
 }
 
 function updateTodayStatus(logs){
